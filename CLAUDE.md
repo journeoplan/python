@@ -74,12 +74,17 @@ python/
 카메라와 WiFi CSI는 동일한 인터페이스로 신호 처리 파이프라인에 데이터를 공급한다.
 
 ```python
-# 모든 센서가 지켜야 할 인터페이스
+@dataclass
+class SensorOutput:
+    signal: np.ndarray              # shape: (n_channels,)
+    frame: Optional[np.ndarray]     # 시각화용 프레임
+    metadata: Dict[str, Any]        # 센서별 추가 데이터
+
 class BaseSensor(ABC):
     def start(self) -> None: ...
-    def read(self) -> np.ndarray: ...   # shape: (n_channels,)
+    def read(self) -> SensorOutput: ...
     def stop(self) -> None: ...
-    def fps(self) -> float: ...
+    def fps(self) -> float: ...     # @property
 ```
 
 ### 신호 처리 파이프라인 (불변 원칙)
@@ -113,21 +118,61 @@ HEART_HZ_MAX  = 2.5   # 150 BPM
 - `pytest tests/ -v` 로 실행
 - 신호 처리 함수는 합성 데이터(사인파)로 검증
 
-### 커밋 메시지
+### Git 워크플로우 정책
+
+#### 브랜치 구조
 ```
-feat: 카메라 센서 어깨 Y좌표 추출 추가
-fix: FFT 피크 감지 엣지케이스 수정
-refactor: 필터 파라미터 config.py로 이동
-test: Butterworth 필터 주파수 응답 테스트 추가
+main              ← 안정 버전. 항상 테스트 통과 상태 유지.
+dev               ← 통합 브랜치. feat 브랜치를 여기에 머지.
+feat/<이름>       ← 기능 개발 (예: feat/apnea-detector)
+fix/<이름>        ← 버그 수정 (예: fix/nan-smoother)
+refactor/<이름>   ← 리팩터링 (예: refactor/app-orchestrator)
 ```
 
-### 브랜치 전략
+#### 브랜치 흐름
 ```
-main          ← 안정 버전
-dev           ← 통합 브랜치
-feat/phase-1  ← 카메라 기능 개발
-feat/phase-2  ← WiFi CSI 기능 개발
+feat/xxx ──PR──▶ dev ──PR──▶ main
+fix/xxx  ──PR──▶ dev ──PR──▶ main
+                 ↑
+            테스트 통과 필수
 ```
+
+#### 커밋 메시지 규칙
+```
+<타입>: <한줄 설명 (한글 가능, 50자 이내)>
+
+# 타입 목록:
+feat:     새 기능
+fix:      버그 수정
+refactor: 기능 변경 없는 코드 개선
+test:     테스트 추가/수정
+docs:     문서 변경
+chore:    빌드, 설정, 의존성 등
+```
+
+#### PR 규칙
+1. **feat/fix/refactor 브랜치 → dev**: PR 생성 후 머지
+   - PR 제목: 커밋 메시지와 동일 형식
+   - PR 본문: 변경 내용 요약 + 테스트 계획
+   - 머지 전 필수: `pytest tests/ -v` 전체 통과
+2. **dev → main**: 안정화 확인 후 PR
+   - Phase 단위 또는 주요 마일스톤에서만 머지
+   - 머지 방식: **Squash and merge** (커밋 히스토리 깔끔하게)
+3. **main 직접 푸시 금지** — 반드시 PR을 통해서만
+
+#### 머지 전 체크리스트
+```
+[ ] pytest tests/ -v — 전체 PASS
+[ ] 새 코드에 테스트 포함 (src/signal/, src/detectors/ 필수)
+[ ] config.py 상수 변경 시 관련 테스트 확인
+[ ] TODOS.md 업데이트 (완료 항목 체크, 새 항목 추가)
+```
+
+#### 금지 사항
+- `git push --force` to main/dev (히스토리 파괴)
+- main에 테스트 실패 상태 머지
+- `.env`, `data/recordings/`, 생체 데이터 커밋
+- 커밋 메시지 없는 빈 커밋
 
 ---
 
