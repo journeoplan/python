@@ -90,6 +90,8 @@ class BreathMonitorApp:
 
     def _loop(self) -> None:
         """프레임 처리 루프."""
+        _fps_calibrated = False
+
         while True:
             output = self._sensor.read()
 
@@ -100,6 +102,14 @@ class BreathMonitorApp:
             h, w = frame.shape[:2]
             val = output.signal[0]
             landmarks = output.metadata.get("landmarks")
+
+            # 자동 FPS 교정: 충분한 프레임 수집 후 1회 실행
+            if not _fps_calibrated and len(self._full_buffer) >= FPS * 2:
+                actual_fps = self._sensor.fps
+                if abs(actual_fps - FPS) > 1.0:
+                    self._detector.update_fs(actual_fps)
+                    logger.info("FPS 교정: %.1f → %.1f", FPS, actual_fps)
+                _fps_calibrated = True
 
             # FaceMesh 처리 (활성화 시)
             if self._face_mesh is not None:
