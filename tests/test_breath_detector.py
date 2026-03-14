@@ -91,3 +91,33 @@ def test_accuracy_across_bpm_range(target_bpm):
     assert abs(bpm - target_bpm) < 2.0, (
         f"Accuracy fail: target={target_bpm}, got={bpm:.2f}"
     )
+
+
+def test_update_fs():
+    """FPS 교정 후에도 정확도 유지."""
+    actual_fps = 24.0  # 저사양 기기 시뮬레이션
+    detector = BreathDetector(fs=FPS)
+    detector.update_fs(actual_fps)
+    assert detector.fs == actual_fps
+
+    signal = make_breath_signal(bpm=15.0, duration=20, fs=actual_fps)
+    bpm, _ = detector.process(signal)
+    assert bpm is not None
+    assert abs(bpm - 15.0) < 2.0, f"Expected ~15 after FPS cal, got {bpm}"
+
+
+def test_update_fs_skips_small_change():
+    """FPS 변화가 미미하면 재생성하지 않음."""
+    detector = BreathDetector(fs=30.0)
+    old_filter = detector._filter
+    detector.update_fs(30.3)  # 0.3 차이 → 무시
+    assert detector._filter is old_filter  # 동일 객체
+
+
+def test_update_fs_ignores_invalid():
+    """0 이하 FPS는 무시."""
+    detector = BreathDetector(fs=30.0)
+    detector.update_fs(0)
+    assert detector.fs == 30.0
+    detector.update_fs(-5)
+    assert detector.fs == 30.0
