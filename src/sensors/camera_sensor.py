@@ -3,9 +3,9 @@ import mediapipe as mp
 import numpy as np
 import time
 from collections import deque
-from typing import Optional, Tuple
+from typing import Optional
 
-from src.sensors.base_sensor import BaseSensor
+from src.sensors.base_sensor import BaseSensor, SensorOutput
 from src.config import (
     FPS, BUFFER_SIZE,
     MEDIAPIPE_MODEL_COMPLEXITY,
@@ -29,7 +29,6 @@ class CameraSensor(BaseSensor):
         self._running = False
         self._timestamps: deque = deque(maxlen=BUFFER_SIZE)
         self._mp_pose = mp.solutions.pose
-        self._mp_draw = mp.solutions.drawing_utils
 
     def start(self) -> None:
         self._cap = cv2.VideoCapture(self._camera_id)
@@ -49,21 +48,21 @@ class CameraSensor(BaseSensor):
         )
         self._running = True
 
-    def read(self) -> Tuple[np.ndarray, Optional[object], Optional[object]]:
+    def read(self) -> SensorOutput:
         """프레임 읽기 및 어깨 Y좌표 반환.
 
         Returns:
-            (signal, frame, landmarks) 튜플.
-            signal: shape (1,) — 어깨 Y좌표 (픽셀 정규화 0~1)
-            frame: OpenCV BGR 프레임 (오버레이용)
-            landmarks: MediaPipe 랜드마크 (없으면 None)
+            SensorOutput:
+                signal: shape (1,) — 어깨 Y좌표 (픽셀 정규화 0~1), 감지 실패 시 [nan]
+                frame: OpenCV BGR 프레임, 프레임 손실 시 None
+                metadata: {"landmarks": pose_landmarks} 또는 빈 dict
         """
         if not self._running or self._cap is None:
             raise RuntimeError("Sensor not started.")
 
         ret, frame = self._cap.read()
         if not ret:
-            return np.array([np.nan]), None, None
+            return SensorOutput(signal=np.array([np.nan]))
 
         frame = cv2.flip(frame, 1)
         self._timestamps.append(time.time())
@@ -76,9 +75,13 @@ class CameraSensor(BaseSensor):
             left_y = lm[self._mp_pose.PoseLandmark.LEFT_SHOULDER].y
             right_y = lm[self._mp_pose.PoseLandmark.RIGHT_SHOULDER].y
             shoulder_y = (left_y + right_y) / 2.0
-            return np.array([shoulder_y]), frame, result.pose_landmarks
+            return SensorOutput(
+                signal=np.array([shoulder_y]),
+                frame=frame,
+                metadata={"landmarks": result.pose_landmarks},
+            )
 
-        return np.array([np.nan]), frame, None
+        return SensorOutput(signal=np.array([np.nan]), frame=frame)
 
     def stop(self) -> None:
         self._running = False

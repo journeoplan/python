@@ -1,6 +1,8 @@
 import numpy as np
 from typing import Optional, Tuple
 
+from src.config import FFT_PEAK_MIN_MAGNITUDE
+
 
 class FFTAnalyzer:
     """FFT 기반 주파수 분석기."""
@@ -42,6 +44,11 @@ class FFTAnalyzer:
 
         masked_mags = mags[mask]
         masked_freqs = freqs[mask]
+
+        # 피크 magnitude가 임계값 미만이면 유의미한 신호 없음
+        if np.max(masked_mags) < FFT_PEAK_MIN_MAGNITUDE:
+            return None
+
         k = int(np.argmax(masked_mags))
 
         # 파라볼라 보간: 인접 3개 빈으로 서브빈 정밀도 달성

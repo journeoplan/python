@@ -1,17 +1,27 @@
 import cv2
 import numpy as np
-from PIL import ImageFont, ImageDraw, Image
 from typing import Optional, Deque, Tuple
 
-# macOS 한글 폰트 로드
-_FONT_PATH = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
+from src.config import FONT_PATH
+
+# PIL 기반 한글 렌더링 (폰트 존재 시에만)
+_USE_PIL = False
 _font_cache: dict = {}
 
+if FONT_PATH is not None:
+    try:
+        from PIL import ImageFont, ImageDraw, Image
+        _USE_PIL = True
+    except ImportError:
+        pass
 
-def _get_font(size: int) -> ImageFont.FreeTypeFont:
-    if size not in _font_cache:
-        _font_cache[size] = ImageFont.truetype(_FONT_PATH, size)
-    return _font_cache[size]
+
+def _get_font(size: int):
+    """폰트 캐시에서 가져오거나 새로 로드."""
+    if size not in _font_cache and FONT_PATH is not None:
+        from PIL import ImageFont
+        _font_cache[size] = ImageFont.truetype(FONT_PATH, size)
+    return _font_cache.get(size)
 
 
 def _put_text_kr(
@@ -21,20 +31,24 @@ def _put_text_kr(
     font_size: int,
     color: Tuple[int, int, int],
 ) -> np.ndarray:
-    """PIL을 사용해 한글 텍스트를 프레임에 렌더링."""
-    # BGR → RGB
-    img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(img_pil)
-    font = _get_font(font_size)
-    # OpenCV BGR color → PIL RGB color
-    rgb_color = (color[2], color[1], color[0])
-    draw.text(pos, text, font=font, fill=rgb_color)
-    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+    """한글 텍스트를 프레임에 렌더링. PIL 없으면 cv2 폴백."""
+    if _USE_PIL:
+        from PIL import ImageDraw, Image
+        img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(img_pil)
+        font = _get_font(font_size)
+        rgb_color = (color[2], color[1], color[0])
+        draw.text(pos, text, font=font, fill=rgb_color)
+        return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+    # cv2 폴백 (한글 깨짐 가능, 하지만 크래시 방지)
+    scale = font_size / 24.0
+    cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1)
+    return frame
 
 
 def draw_bpm(frame: np.ndarray, bpm: Optional[float]) -> np.ndarray:
     """BPM 수치를 프레임 좌측 상단에 오버레이."""
-    h, w = frame.shape[:2]
     cv2.rectangle(frame, (10, 10), (310, 90), (20, 20, 20), -1)
 
     if bpm is None:
@@ -71,7 +85,7 @@ def draw_signal_graph(
     cv2.rectangle(overlay, (10, graph_y), (w - 10, h - 10), (20, 20, 20), -1)
     cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
 
-    def _plot(sig, color, thickness=1):
+    def _plot_signal_line(sig, color, thickness=1):
         if len(sig) < 2:
             return
         arr = np.array(sig)[-300:]
@@ -87,9 +101,9 @@ def draw_signal_graph(
         for i in range(1, len(pts)):
             cv2.line(frame, pts[i - 1], pts[i], color, thickness)
 
-    _plot(raw_signal, (80, 200, 80), 1)
+    _plot_signal_line(raw_signal, (80, 200, 80), 1)
     if filtered_signal is not None and len(filtered_signal) > 0:
-        _plot(filtered_signal, (255, 140, 0), 2)
+        _plot_signal_line(filtered_signal, (255, 140, 0), 2)
 
     return frame
 
@@ -110,4 +124,13 @@ def draw_progress(frame: np.ndarray, ratio: float) -> np.ndarray:
     cv2.rectangle(frame, (10, y), (w - 10, y + 7), (60, 60, 60), -1)
     cv2.rectangle(frame, (10, y), (10 + bar_w, y + 7), (0, 200, 100), -1)
     frame = _put_text_kr(frame, f"수집: {ratio * 100:.0f}%", (10, y - 20), 14, (130, 130, 130))
+    return frame
+
+
+def draw_fps(frame: np.ndarray, fps: float) -> np.ndarray:
+    """실시간 FPS를 우측 상단에 표시."""
+    h, w = frame.shape[:2]
+    text = f"FPS: {fps:.1f}"
+    cv2.putText(frame, text, (w - 140, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 255, 100), 1)
     return frame
